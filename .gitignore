@@ -1,0 +1,8 @@
+# Ignore the 'env' directory
+env/
+
+# Ignore text files
+*.txt
+
+# Ignore the database file
+*.db
