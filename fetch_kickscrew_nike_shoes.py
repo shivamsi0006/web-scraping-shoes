@@ -1,8 +1,10 @@
+import os
+import sys
 import asyncio
 import aiohttp
 import json
+import logging
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -14,8 +16,10 @@ from selenium.webdriver.support import expected_conditions as EC
 import schedule
 import time as tm
 
-# Database setup
-engine = create_engine('sqlite:///fetch_nike_shoes.db')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+engine = create_engine('sqlite:///fetch_nikes_shoes.db')
 Base = declarative_base()
 
 class Shoes(Base):
@@ -31,14 +35,21 @@ class Shoes(Base):
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
-db_session = Session()  # Global session instance
+db_session = Session()
 
-# Create a single Chrome driver instance
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
+
+chrome_driver_path = "/usr/bin/google-chrome"
+if not os.path.exists(chrome_driver_path):
+    logger.error(f"Chrome driver not found at path: {chrome_driver_path}")
+    sys.exit(1)
+
 driver = webdriver.Chrome(options=chrome_options)
+
+
 
 async def fetch(url):
     async with aiohttp.ClientSession() as session:
@@ -46,7 +57,7 @@ async def fetch(url):
             try:
                 return await response.text()
             except Exception as e:
-                print('fetch', e)
+                logger.error(f'fetch: {e}')
                 return await response.text()
 
 async def get_product_links(url):
@@ -57,7 +68,7 @@ async def get_product_links(url):
         href_list = [product.find_element(By.TAG_NAME, "a").get_attribute("href") for product in products]
         return href_list
     except Exception as e:
-        print(f"Error fetching product links from {url}: {e}")
+        logger.error(f"Error fetching product links from {url}: {e}")
         return []
 
 async def store_data(url):
@@ -69,7 +80,7 @@ async def store_data(url):
                 try:
                     new_soup = BeautifulSoup(html, "html.parser")
                 except Exception as e:
-                    print("new_soup", e)
+                    logger.error(f"new_soup: {e}")
                 if new_soup:
                     title = await fetch_title(new_soup)
                     description = await fetch_description(new_soup)
@@ -80,10 +91,10 @@ async def store_data(url):
                     images_links = await fetch_image_links(new_soup)
                     insert_data(title, description, price, size_type, product_size, product_details, images_links)
             except Exception as e:
-                print(f"Error processing {product_link}: {e}")
+                logger.error(f"Error processing {product_link}: {e}")
     except Exception as e:
-        print(f"Error fetching product links from {url}: {e}")
-        print("Pausing for a minute before trying again...")
+        logger.error(f"Error fetching product links from {url}: {e}")
+        logger.info("Pausing for a minute before trying again...")
         await asyncio.sleep(60)  # Pause for a minute before trying again
 
 def insert_data(title, description, price, size_type, product_size, product_details, images_links):
@@ -266,24 +277,22 @@ def create_size_chart(values):
 async def main():
     chunk_size = 5
     total_pages = 314
-    tasks = []
     semaphore = asyncio.Semaphore(chunk_size)
 
     for i in range(1, total_pages + 1, chunk_size):
         chunk_urls = [f"https://www.kickscrew.com/collections/nike?page={j}" for j in range(i, min(i + chunk_size, total_pages + 1))]
-        print(f"Fetching data for chunk {i} - {i + chunk_size - 1}")
+        logger.info(f"Fetching data for chunk {i} - {i + chunk_size - 1}")
 
         async with semaphore:
             chunk_tasks = [store_data(url) for url in chunk_urls]
             await asyncio.gather(*chunk_tasks)
-
 
         await asyncio.sleep(60)
 
 def job():
     asyncio.run(main())
 
-schedule.every().day.at("16:08").do(job)
+schedule.every().day.at("18:59").do(job)
 
 while True:
     schedule.run_pending()
