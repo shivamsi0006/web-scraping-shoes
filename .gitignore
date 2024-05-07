@@ -6,3 +6,6 @@ env/
 
 # Ignore the database file
 *.db
+
+# Ignore Python files starting with 'try_'
+try_*.py
